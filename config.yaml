@@ -1,68 +1,38 @@
-# RAGSelfTrain configuration
-# Environment: HF_ENDPOINT=https://hf-mirror.com  KIMI_API_KEY=...
+# RAGSelfTrain configuration (as actually built)
+# Env: HF_ENDPOINT=https://hf-mirror.com  KIMI_API_KEY=...
 
 corpus:
-  source_dataset: "zhaosuifeng/FinRAGBench-V"      # apache-2.0 (verified via HF metadata)
-  source_tarball: "pdfs_for_QA/pdf_ch.tar.gz"       # ~4.67GB compressed, Chinese financial PDFs
-  target_num_pdfs: 40
-  local_dir: "corpus/pdfs"
-  manifest: "corpus/MANIFEST.csv"
+  source: "zhaosuifeng/FinRAGBench-V"        # EMNLP 2025, apache-2.0, Chinese financial PDFs
+  pdfs_dir: "corpus/pdfs_selected_for_queries"  # 373 PDFs extracted from pdfs_for_QA tarball
+  used_docs: 193                                # docs needed by the 720 matched benchmark queries
 
 parsing:
-  engine: "docling"                                 # Docling (MIT): text + TableFormer tables + images, easy install
-  parse_dir: "corpus/parsed"
-  images_dir: "corpus/images"
-  kimi_desc_out: "corpus/kimidesc.jsonl"
-
-chunking:
-  child_tokens: 256
-  overlap: 0.1
-  keep_parent: true                                # parent = full 条文-level unit (page/section)
-  min_tokens: 16
+  text_pages: "pymupdf"                        # page-level text via pymupdf (digital-born pages)
+  image_pages: "mineru-ocr"                    # ~130 query-referenced image-only pages OCR'd via MinerU
 
 retrieval:
-  bm25: { tokenizer: ["jieba", "char_bigram"], k1: 1.5, b: 0.75 }
+  bm25: { tokenizer: "char_bigram", k1: 1.5, b: 0.75 }
   dense: { model: "BAAI/bge-base-zh-v1.5", dim: 768 }
   rrf: { k: 60 }
-  rerank: { model: "BAAI/bge-reranker-base", top_k_retrieve: 50, top_k_final: 5, max_len: 512 }
+  rerank: { top_k_retrieve: 50, top_k_final: 10, max_len: 512 }
 
 models:
-  bi_encoder_pretrained: "BAAI/bge-base-zh-v1.5"
-  bi_encoder_finetuned: "shannon/rag-bge-base-zh-selftrain"     # published after D4
-  reranker_pretrained: "BAAI/bge-reranker-base"
-  reranker_large_frozen: "BAAI/bge-reranker-large"              # for off-the-shelf row ③ baseline
-  reranker_finetuned: "shannon/rag-bge-reranker-base-selftrain"
-  # bge s2p query instruction — applied to QUERY only, never passages; identical for frozen & fine-tuned rows
-  query_instruction: "为这个句子生成表示以用于检索相关文章："
+  bi_encoder_pretrained: "BAAI/bge-base-zh-v1.5"     # 110M
+  bi_encoder_finetuned: "checkpoints/biencoder"      # InfoNCE, 3 epochs (release: rag_artifacts.tar.gz)
+  reranker_pretrained: "BAAI/bge-reranker-base"      # 278M
+  reranker_finetuned: "checkpoints/reranker_v2"      # BCE, 2 epochs, same-doc+cross-doc+self-mined negatives
+  query_instruction: "为这个句子生成表示以用于检索相关文章："  # query-only, identical train/inference
 
 training:
-  data: "data/train_pairs.jsonl"
-  golden: "data/golden.jsonl"
-  heldout_docs: 8                                    # doc-level split: these docs never appear in training data
-  bi_encoder:  { epochs: 5, lr: 1e-5, batch_size: 32, temperature: 0.05, early_stop_metric: "nDCG@10" }
-  reranker:    { epochs: 5, lr: 1e-5, batch_size: 16, max_len: 512, early_stop_metric: "nDCG@10" }
-
-kimi:
-  base_url: "https://api.moonshot.cn/v1"
-  # moonshot-v1-8k chosen over kimi-k2.5: VERIFIED that enable_thinking=false is
-  # ignored on kimi-k2.x (hidden reasoning always burns ~2/3 of output tokens →
-  # ~3x effective cost + truncation). moonshot-v1 has no reasoning waste and is
-  # cheaper ($0.20/$2.00 vs $0.60/$3.00). Risk: v1 is legacy; if deprecated,
-  # fall back to kimi-k2.5 with max_tokens raised to ~800 and budget ×2.
-  model: "moonshot-v1-8k"                 # text roles: synthetic_pairs/golden_queries/judge/demo
-  vision_model: "moonshot-v1-8k-vision-preview"   # image_description role
-  enable_thinking: false                  # verified no-op on kimi-k2.x; keep for safety
-  max_tokens: 400
-  roles: ["image_description", "synthetic_pairs", "golden_queries", "judge", "demo_generation"]
-  budget_usd: 10                          # hard cap; judge-trim dial if threatened
+  triples: "data/train_triples_v2.jsonl"       # 618 (query, gold page, hard negatives), from benchmark qrels
+  golden: "data/golden.jsonl"                  # 99 real benchmark queries, doc-level held out
+  bi_encoder:  { epochs: 3, lr: 1e-5, batch_size: 32 }
+  reranker:    { epochs: 2, lr: 5e-6, batch_size: 16 }
 
 eval:
-  golden: "data/golden.jsonl"
-  n_queries: 120
-  rows: ["bm25", "dense_offshell", "full_offshell", "dense_selftrain", "full_selftrain"]
-  retrieval_metrics: ["context_precision", "context_recall", "recall@5", "MRR@10"]
-  generation_rows: ["dense_offshell", "full_offshell", "full_selftrain"]
-  generation_metrics: ["faithfulness", "factual_correctness", "answer_relevancy"]
-  ragchecker_rows: ["full_offshell", "full_selftrain"]          # claim-level diagnosis ③ vs ⑤
-  output_dir: "results"
+  n_golden: 99
+  rows: ["bm25", "off_dense_rrf", "off_full_rerank", "trained_dense_rrf", "trained_full_rerank"]
+  metrics: ["Recall@10", "nDCG@10", "MRR@10"]  # single-gold qrels → Recall@10 = Hit@10
+  significance: "paired bootstrap 95% CI + Wilcoxon (results/stats_summary.md)"
+  output: "results/"
   seed: 42

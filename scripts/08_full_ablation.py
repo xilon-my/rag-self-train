@@ -125,6 +125,10 @@ def main():
             if res["r10"]:
                 f.write(f"{name},{np.mean(res['r10']):.4f},{np.mean(res['ndcg']):.4f},{np.mean(res['mrr']):.4f}\n")
 
+    # per-query results for paired bootstrap / Wilcoxon
+    with open("results/per_query.json", "w", encoding="utf-8") as f:
+        json.dump({name: res for name, res in results.items()}, f, ensure_ascii=False)
+
 
 if __name__ == "__main__":
     main()
