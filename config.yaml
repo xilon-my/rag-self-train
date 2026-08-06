@@ -9,7 +9,7 @@ corpus:
   manifest: "corpus/MANIFEST.csv"
 
 parsing:
-  engine: "mineru"                                  # MinerU: text blocks + markdown tables + images
+  engine: "docling"                                 # Docling (MIT): text + TableFormer tables + images, easy install
   parse_dir: "corpus/parsed"
   images_dir: "corpus/images"
   kimi_desc_out: "corpus/kimidesc.jsonl"
