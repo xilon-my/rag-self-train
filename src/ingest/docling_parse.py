@@ -13,7 +13,43 @@ import json
 import os
 from pathlib import Path
 
-from docling.document_converter import DocumentConverter
+import torch  # noqa: E402
+
+from docling.datamodel.settings import settings  # noqa: E402
+
+# torch.compile's inductor worker crashes on this torch 2.7 nightly (sm_120); run eager.
+settings.inference.compile_torch_models = False
+
+import docling.models.inference_engines.object_detection.transformers_engine as _te  # noqa: E402
+from docling.document_converter import DocumentConverter, PdfFormatOption
+from docling.datamodel.base_models import InputFormat
+from docling.datamodel.pipeline_options import PdfPipelineOptions
+
+
+# --- Workaround: RT-DETR (docling-layout-old) + transformers >= 4.57 padding bug ---
+# Docling calls the HF image processor without `size`, so differently-sized page
+# images can't form a batch tensor ("activate padding"). Pass a fixed longest-edge
+# so all batch images resize to the same dims; post-processing still maps back via
+# native `target_sizes`. Patched at import time, before any converter is built.
+_orig_predict_batch = _te.TransformersObjectDetectionEngine.predict_batch
+
+
+def _patched_predict_batch(self, input_batch):
+    if not input_batch:
+        return []
+    images = [item.image.convert("RGB") for item in input_batch]
+    inputs = self._processor(images=images, return_tensors="pt",
+                             size={"height": 1280, "width": 1280}).to(self._device)
+    target_sizes = torch.tensor([[img.height, img.width] for img in images], device=self._device)
+    with torch.inference_mode():
+        outputs = self._model(**inputs)
+    results = self._processor.post_process_object_detection(
+        outputs, target_sizes=target_sizes, threshold=self.options.score_threshold
+    )
+    return results
+
+
+_te.TransformersObjectDetectionEngine.predict_batch = _patched_predict_batch
 
 TEXT_LABELS = {"text", "title", "section_header", "paragraph", "caption"}
 TABLE_LABELS = {"table"}
@@ -27,7 +63,15 @@ def parse_pdf(pdf_path: str, images_dir: str) -> dict:
     images_dir = Path(images_dir)
     images_dir.mkdir(parents=True, exist_ok=True)
 
-    converter = DocumentConverter()
+    pipeline_options = PdfPipelineOptions()
+    pipeline_options.do_ocr = False
+    # batch_size=1: avoids RT-DETR "activate padding" tensor error on mixed-size pages
+    pipeline_options.layout_batch_size = 1
+    pipeline_options.table_batch_size = 1
+
+    converter = DocumentConverter(
+        format_options={InputFormat.PDF: PdfFormatOption(pipeline_options=pipeline_options)}
+    )
     result = converter.convert(str(pdf_path))
     doc = result.document
 
