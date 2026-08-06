@@ -76,7 +76,7 @@ def main():
 
     # rerankers
     rrk_off = CrossEncoderReranker("BAAI/bge-reranker-base", device="cuda")
-    rrk_tr = CrossEncoderReranker("checkpoints/reranker", device="cuda")
+    rrk_tr = CrossEncoderReranker("checkpoints/reranker_v2", device="cuda")
 
     rows, qrel = load_golden()
     print(f"golden: {len(rows)}")
