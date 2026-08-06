@@ -1,0 +1,28 @@
+# secrets
+.env
+
+# bulk data — never committed (PDFs, parquet, images, raw JSONL)
+corpus/pdfs/
+corpus/parsed/
+corpus/images/
+corpus/kimidesc.jsonl
+corpus/chunks.parquet
+data/*.jsonl
+data/*.parquet
+
+# artifacts
+checkpoints/
+results/runs/
+experiments/
+
+# python
+__pycache__/
+*.pyc
+.venv/
+venv/
+*.egg-info/
+
+# tooling
+.DS_Store
+.idea/
+.vscode/
