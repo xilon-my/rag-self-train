@@ -44,11 +44,17 @@ training:
 
 kimi:
   base_url: "https://api.moonshot.cn/v1"
-  model: "kimi-k2.5"
-  enable_thinking: false                            # MANDATORY: thinking is ON by default and consumes max_tokens
+  # moonshot-v1-8k chosen over kimi-k2.5: VERIFIED that enable_thinking=false is
+  # ignored on kimi-k2.x (hidden reasoning always burns ~2/3 of output tokens →
+  # ~3x effective cost + truncation). moonshot-v1 has no reasoning waste and is
+  # cheaper ($0.20/$2.00 vs $0.60/$3.00). Risk: v1 is legacy; if deprecated,
+  # fall back to kimi-k2.5 with max_tokens raised to ~800 and budget ×2.
+  model: "moonshot-v1-8k"                 # text roles: synthetic_pairs/golden_queries/judge/demo
+  vision_model: "moonshot-v1-8k-vision-preview"   # image_description role
+  enable_thinking: false                  # verified no-op on kimi-k2.x; keep for safety
   max_tokens: 400
   roles: ["image_description", "synthetic_pairs", "golden_queries", "judge", "demo_generation"]
-  budget_usd: 10                                    # hard cap; judge-trim dial if threatened
+  budget_usd: 10                          # hard cap; judge-trim dial if threatened
 
 eval:
   golden: "data/golden.jsonl"
