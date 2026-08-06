@@ -74,6 +74,11 @@ def main():
     vecs_tr = trained_enc.encode(texts, is_query=False)
     dense_tr = DenseIndex(ids, vecs_tr)
 
+    if os.path.isdir("checkpoints/biencoder_distilled"):
+        distilled_enc = QueryEncoder("checkpoints/biencoder_distilled", device="cuda")
+        vecs_d = distilled_enc.encode(texts, is_query=False)
+        dense_d = DenseIndex(ids, vecs_d)
+
     # rerankers
     rrk_off = CrossEncoderReranker("BAAI/bge-reranker-base", device="cuda")
     rrk_tr = CrossEncoderReranker("checkpoints/reranker_v2", device="cuda")
@@ -81,7 +86,10 @@ def main():
     rows, qrel = load_golden()
     print(f"golden: {len(rows)}")
 
-    results = {name: {"r10": [], "ndcg": [], "mrr": []} for name in ["1_bm25", "2_off_rrf", "3_off_rerank", "4_tr_rrf", "5_tr_rerank"]}
+    row_names = ["1_bm25", "2_off_rrf", "3_off_rerank", "4_tr_rrf", "5_tr_rerank"]
+    if os.path.isdir("checkpoints/biencoder_distilled"):
+        row_names.append("6_distilled_rrf")
+    results = {name: {"r10": [], "ndcg": [], "mrr": []} for name in row_names}
     for q in rows:
         qid = q["query-id"]
         if qid not in qrel:
@@ -106,6 +114,8 @@ def main():
             "4_tr_rrf": fused(trained_enc, dense_tr)[:10],
             "5_tr_rerank": reranked(trained_enc, dense_tr, rrk_tr),
         }
+        if os.path.isdir("checkpoints/biencoder_distilled"):
+            orders["6_distilled_rrf"] = fused(distilled_enc, dense_d)[:10]
         for name, order in orders.items():
             m = metrics(order, qrel, qid)
             if m:
