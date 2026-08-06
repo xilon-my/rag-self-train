@@ -18,3 +18,12 @@ class CrossEncoderReranker:
         scores = self.model.predict(pairs, show_progress_bar=False)  # (n,)
         order = np.argsort(-scores)[:top_k]
         return [(candidates[i], float(scores[i])) for i in order]
+
+    def rerank_ids(self, query: str, id_text_pairs: list[tuple[str, str]], top_k: int = 5) -> list[tuple[str, float]]:
+        """Same as rerank but returns the caller's ids alongside scores."""
+        if not id_text_pairs:
+            return []
+        pairs = [[query, t] for _, t in id_text_pairs]
+        scores = self.model.predict(pairs, show_progress_bar=False)
+        order = np.argsort(-scores)[:top_k]
+        return [(id_text_pairs[i][0], float(scores[i])) for i in order]
